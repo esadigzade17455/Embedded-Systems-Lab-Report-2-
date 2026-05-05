@@ -24,7 +24,7 @@ const int SERVO_CENTER   = 60;
 // -------------------- Stepper --------------------
 const int STEPS_PER_REV = 2048;
 Stepper tugStepper(STEPS_PER_REV, IN1_PIN, IN3_PIN, IN2_PIN, IN4_PIN);
-const int ROUND_STEPPER_MOVE = 64;
+const int ROUND_STEPPER_MOVE = 256;
 
 // -------------------- Game settings --------------------
 const int TARGET_WINS = 3;
