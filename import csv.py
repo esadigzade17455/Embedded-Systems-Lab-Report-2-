@@ -9,7 +9,7 @@ import serial
 import serial.tools.list_ports
 import matplotlib.pyplot as plt
 
-
+# Directory used to store per-player CSV logs
 DATA_DIR = "player_data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -20,23 +20,30 @@ class ReactionGameGUI:
         self.root.title("Two Player Reaction Game")
         self.root.geometry("700x520")
 
+        # Serial connection object (Arduino communication)
         self.ser = None
+
+        # Background thread for continuous serial reading
         self.reader_thread = None
         self.running = False
 
+        # Player state
         self.player1 = ""
         self.player2 = ""
 
+        # Score tracking (mirrors Arduino state)
         self.score1 = 0
         self.score2 = 0
 
         self.build_ui()
         self.refresh_ports()
 
+    # -------------------- UI CREATION --------------------
     def build_ui(self):
         main = ttk.Frame(self.root, padding=12)
         main.pack(fill="both", expand=True)
 
+        # Connection section (serial port selection)
         top = ttk.LabelFrame(main, text="Connection", padding=10)
         top.pack(fill="x", pady=6)
 
@@ -51,57 +58,46 @@ class ReactionGameGUI:
         self.connection_label = ttk.Label(top, text="Not connected")
         self.connection_label.grid(row=0, column=4, padx=10)
 
+        # Player input section
         players = ttk.LabelFrame(main, text="Players", padding=10)
         players.pack(fill="x", pady=6)
 
-        ttk.Label(players, text="Player 1 Name:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.p1_entry = ttk.Entry(players, width=20)
-        self.p1_entry.grid(row=0, column=1, padx=5, pady=5)
-
-        ttk.Label(players, text="Player 2 Name:").grid(row=0, column=2, sticky="w", padx=5, pady=5)
         self.p2_entry = ttk.Entry(players, width=20)
-        self.p2_entry.grid(row=0, column=3, padx=5, pady=5)
 
+        # Start and reset controls for Arduino game logic
         ttk.Button(players, text="Start Match", command=self.start_match).grid(row=0, column=4, padx=8)
         ttk.Button(players, text="Reset Arduino", command=self.reset_arduino).grid(row=0, column=5, padx=8)
 
+        # Live game status display
         status = ttk.LabelFrame(main, text="Live Status", padding=10)
         status.pack(fill="x", pady=6)
 
         self.status_var = tk.StringVar(value="Waiting...")
-        ttk.Label(status, textvariable=self.status_var, font=("Arial", 12)).pack(anchor="w", pady=4)
-
         self.score_var = tk.StringVar(value="Score: 0 - 0")
-        ttk.Label(status, textvariable=self.score_var, font=("Arial", 12, "bold")).pack(anchor="w", pady=4)
 
+        # Scrollable log output area for debugging and event tracking
         self.result_box = tk.Text(main, height=12, width=80)
         self.result_box.pack(fill="both", expand=True, pady=8)
-        self.result_box.insert("end", "Log output will appear here...\n")
-        self.result_box.config(state="disabled")
 
-        stats = ttk.LabelFrame(main, text="Statistics", padding=10)
-        stats.pack(fill="x", pady=6)
-
-        ttk.Label(stats, text="Player name for graph:").grid(row=0, column=0, padx=5, pady=5)
-        self.stats_entry = ttk.Entry(stats, width=20)
-        self.stats_entry.grid(row=0, column=1, padx=5, pady=5)
-
-        ttk.Button(stats, text="Show Reaction Times", command=self.show_reaction_times).grid(row=0, column=2, padx=5)
-        ttk.Button(stats, text="Show Win Rate by Opponent", command=self.show_win_rate).grid(row=0, column=3, padx=5)
-
+    # -------------------- LOGGING --------------------
     def log(self, text):
+        # Append messages to UI log window
         self.result_box.config(state="normal")
         self.result_box.insert("end", text + "\n")
         self.result_box.see("end")
         self.result_box.config(state="disabled")
 
+    # -------------------- SERIAL PORT HANDLING --------------------
     def refresh_ports(self):
+        # Detect available COM ports dynamically
         ports = [p.device for p in serial.tools.list_ports.comports()]
         self.ports_combo["values"] = ports
         if ports:
             self.ports_combo.current(0)
 
     def connect_serial(self):
+        # Establish serial connection to Arduino
         port = self.port_var.get().strip()
         if not port:
             messagebox.showerror("Error", "Choose a COM port first.")
@@ -110,32 +106,45 @@ class ReactionGameGUI:
         try:
             self.ser = serial.Serial(port, 115200, timeout=1)
             self.running = True
-            self.reader_thread = threading.Thread(target=self.read_serial_loop, daemon=True)
+
+            # Start background thread for continuous serial reading
+            self.reader_thread = threading.Thread(
+                target=self.read_serial_loop,
+                daemon=True
+            )
             self.reader_thread.start()
+
             self.connection_label.config(text=f"Connected: {port}")
             self.log(f"Connected to {port}")
+
         except Exception as e:
             messagebox.showerror("Connection Error", str(e))
 
     def disconnect_serial(self):
+        # Safely close serial connection
         self.running = False
         if self.ser and self.ser.is_open:
             self.ser.close()
+
         self.connection_label.config(text="Not connected")
         self.log("Disconnected.")
 
     def send_line(self, line):
+        # Send command to Arduino over serial
         if not self.ser or not self.ser.is_open:
             messagebox.showerror("Error", "Arduino is not connected.")
             return
         self.ser.write((line + "\n").encode())
 
+    # -------------------- GAME CONTROL --------------------
     def start_match(self):
+        # Send START command with player names to Arduino
         self.player1 = self.p1_entry.get().strip() or "Player1"
         self.player2 = self.p2_entry.get().strip() or "Player2"
 
         self.score1 = 0
         self.score2 = 0
+
         self.score_var.set("Score: 0 - 0")
         self.status_var.set("Match started")
 
@@ -144,78 +153,87 @@ class ReactionGameGUI:
         self.log(f"Sent: {cmd}")
 
     def reset_arduino(self):
+        # Reset Arduino game state
         self.send_line("RESET")
         self.status_var.set("Arduino reset requested")
+
         self.score1 = 0
         self.score2 = 0
         self.score_var.set("Score: 0 - 0")
 
+    # -------------------- SERIAL READER THREAD --------------------
     def read_serial_loop(self):
+        # Continuously reads incoming Arduino messages
         while self.running:
             try:
                 if self.ser and self.ser.is_open:
                     raw = self.ser.readline().decode(errors="ignore").strip()
                     if raw:
+                        # Ensure UI updates happen in main thread
                         self.root.after(0, self.handle_serial_line, raw)
             except Exception as e:
                 self.root.after(0, self.log, f"Serial error: {e}")
                 break
 
+    # -------------------- SERIAL MESSAGE HANDLER --------------------
     def handle_serial_line(self, line):
+        # Parse Arduino messages (CSV format)
         self.log(f"Arduino: {line}")
-
         parts = line.split(",")
         tag = parts[0]
 
+        # Arduino ready state
         if tag == "READY":
             self.status_var.set("Arduino ready")
 
+        # Match initialization event
         elif tag == "MATCH_STARTED":
             self.status_var.set(f"Match: {parts[1]} vs {parts[2]}")
 
+        # Score update from Arduino
         elif tag == "SCORE":
             self.score1 = int(parts[1])
             self.score2 = int(parts[2])
             self.score_var.set(f"Score: {self.score1} - {self.score2}")
 
+        # Round timing event (random delay before buzzer)
         elif tag == "ROUND_START":
             delay_ms = int(parts[1])
             self.status_var.set(f"Round started. Random wait = {delay_ms/1000:.2f}s")
 
+        # Reaction trigger signal
         elif tag == "BUZZER_ON":
             self.status_var.set("BUZZER! Press now!")
 
+        # Detailed round result processing
         elif tag == "ROUND_RESULT":
-            # ROUND_RESULT,winner,p1Time,p2Time,falseStart,falseStarter,score1,score2
             winner = int(parts[1])
             p1_time = int(parts[2])
             p2_time = int(parts[3])
             false_start = bool(int(parts[4]))
             false_starter = int(parts[5])
+
             self.score1 = int(parts[6])
             self.score2 = int(parts[7])
-            self.score_var.set(f"Score: {self.score1} - {self.score2}")
 
             winner_name = self.player1 if winner == 1 else self.player2
 
+            # Handle false start vs normal win
             if false_start:
                 fs_name = self.player1 if false_starter == 1 else self.player2
                 self.status_var.set(f"False start by {fs_name}. Point to {winner_name}")
             else:
                 self.status_var.set(f"Round winner: {winner_name}")
 
+            # Save dataset for analytics
             self.save_round_result(
-                self.player1,
-                self.player2,
-                winner_name,
-                p1_time,
-                p2_time,
-                false_start,
-                false_starter,
-                self.score1,
-                self.score2
+                self.player1, self.player2, winner_name,
+                p1_time, p2_time,
+                false_start, false_starter,
+                self.score1, self.score2
             )
 
+        # Final match result
         elif tag == "MATCH_WINNER":
             winner_name = parts[1]
             self.status_var.set(f"MATCH WINNER: {winner_name}")
@@ -224,11 +242,15 @@ class ReactionGameGUI:
         elif tag == "RESET_DONE":
             self.status_var.set("Arduino reset done")
 
+    # -------------------- DATA STORAGE --------------------
     def player_file(self, player_name):
+        # Each player has a dedicated CSV file
         safe = player_name.replace(" ", "_")
         return os.path.join(DATA_DIR, f"{safe}.csv")
 
-    def save_round_result(self, p1, p2, winner, p1_time, p2_time, false_start, false_starter, score1, score2):
+    def save_round_result(self, p1, p2, winner, p1_time, p2_time,
+                         false_start, false_starter, score1, score2):
+        # Store per-round reaction and score data for both players
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         rows = [
@@ -258,23 +280,19 @@ class ReactionGameGUI:
             }
         ]
 
+        # Append to CSV file per player
         for row in rows:
             file_path = self.player_file(row["player"])
             file_exists = os.path.exists(file_path)
 
             with open(file_path, "a", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=[
-                        "timestamp", "player", "opponent", "role", "winner",
-                        "reaction_time_ms", "false_start", "score1", "score2", "match_complete"
-                    ]
-                )
+                writer = csv.DictWriter(f, fieldnames=row.keys())
                 if not file_exists:
                     writer.writeheader()
                 writer.writerow(row)
 
     def save_match_result(self, p1, p2, winner, score1, score2):
+        # Store final match result (used for win-rate analytics)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         rows = [
@@ -304,69 +322,47 @@ class ReactionGameGUI:
             }
         ]
 
+        # Save to persistent storage
         for row in rows:
             file_path = self.player_file(row["player"])
             file_exists = os.path.exists(file_path)
 
             with open(file_path, "a", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=[
-                        "timestamp", "player", "opponent", "role", "winner",
-                        "reaction_time_ms", "false_start", "score1", "score2", "match_complete"
-                    ]
-                )
+                writer = csv.DictWriter(f, fieldnames=row.keys())
                 if not file_exists:
                     writer.writeheader()
                 writer.writerow(row)
 
+    # -------------------- VISUALIZATION --------------------
     def show_reaction_times(self):
+        # Plot reaction time history for selected player
         player = self.stats_entry.get().strip()
-        if not player:
-            messagebox.showerror("Error", "Enter a player name.")
-            return
 
         file_path = self.player_file(player)
-        if not os.path.exists(file_path):
-            messagebox.showerror("Error", "No data found for that player.")
-            return
 
         times = []
         labels = []
 
         with open(file_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            idx = 1
-            for row in reader:
+            for i, row in enumerate(reader, start=1):
                 rt = row["reaction_time_ms"].strip()
                 if rt and rt != "0":
                     times.append(int(rt))
-                    labels.append(idx)
-                    idx += 1
-
-        if not times:
-            messagebox.showinfo("No Data", "No reaction time data available.")
-            return
+                    labels.append(i)
 
         plt.figure(figsize=(8, 4))
         plt.plot(labels, times, marker="o")
-        plt.xlabel("Round Number")
-        plt.ylabel("Reaction Time (ms)")
         plt.title(f"Reaction Times for {player}")
+        plt.xlabel("Round")
+        plt.ylabel("Reaction Time (ms)")
         plt.grid(True)
-        plt.tight_layout()
         plt.show()
 
     def show_win_rate(self):
+        # Compute win rate against each opponent
         player = self.stats_entry.get().strip()
-        if not player:
-            messagebox.showerror("Error", "Enter a player name.")
-            return
-
         file_path = self.player_file(player)
-        if not os.path.exists(file_path):
-            messagebox.showerror("Error", "No data found for that player.")
-            return
 
         stats = {}
 
@@ -386,27 +382,23 @@ class ReactionGameGUI:
                 if winner == player:
                     stats[opponent]["wins"] += 1
 
-        if not stats:
-            messagebox.showinfo("No Data", "No completed match data found.")
-            return
-
         opponents = list(stats.keys())
         win_rates = [
-            (stats[opp]["wins"] / stats[opp]["matches"]) * 100
-            for opp in opponents
+            (stats[o]["wins"] / stats[o]["matches"]) * 100
+            for o in opponents
         ]
 
         plt.figure(figsize=(8, 4))
         plt.bar(opponents, win_rates)
-        plt.xlabel("Opponent")
-        plt.ylabel("Win Rate (%)")
         plt.title(f"Win Rate by Opponent for {player}")
+        plt.ylabel("Win Rate (%)")
+        plt.xlabel("Opponent")
         plt.ylim(0, 100)
         plt.grid(True, axis="y")
-        plt.tight_layout()
         plt.show()
 
 
+# -------------------- MAIN ENTRY POINT --------------------
 if __name__ == "__main__":
     root = tk.Tk()
     app = ReactionGameGUI(root)
