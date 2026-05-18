@@ -212,7 +212,7 @@ void resetRoundState() {
   waitForButtonsReleased();
 
   roundStartMs = millis();
-  randomDelayMs = random(1000, 5001); // random reaction start delay
+  randomDelayMs = random(1000, 20001); // random reaction start delay between 1 and 20 seconds
 
   buzzerOnMs = 0;
   buzzerActive = false;
